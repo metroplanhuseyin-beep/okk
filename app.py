@@ -11,7 +11,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Özel CSS Stilleri (Orijinal uygulamanızdaki renk paleti ve tasarım dili korunmuştur)
+# Özel CSS Stilleri
 st.markdown("""
     <style>
     .main {
@@ -49,7 +49,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Sınıfları önbelleğe alarak her etkileşimde veritabanına tekrar bağlanmayı önleyelim
+# Sınıfları başlat
 @st.cache_resource
 def init_services():
     fe = FeatureEngineering()
@@ -63,20 +63,19 @@ st.markdown("---")
 
 # --- VERİ YÜKLEME FONKSİYONLARI ---
 @st.cache_data
-(_conn=fe.conn)
-def load_leagues_data(_conn):
+def load_leagues_data():
     try:
         leagues = pd.read_sql_query("""
             SELECT DISTINCT l.league_key, l.league_name, c.country_name
             FROM leagues l
             JOIN countries c ON l.country_key = c.country_key
             ORDER BY c.country_name, l.league_name
-        """, _conn)
+        """, fe.conn)
         return leagues
     except Exception as e:
         return None
 
-leagues_df = load_leagues_data(fe.conn)
+leagues_df = load_leagues_data()
 
 if leagues_df is None or leagues_df.empty:
     st.error("Ligler yüklenirken hata oluştu veya veri tabanı boş!")
@@ -96,17 +95,16 @@ league_key = league_options[selected_league_name]
 
 # Seçilen lige ait takımları çek
 @st.cache_data
-(_conn=fe.conn, _l_key=league_key)
-def load_teams_data(_conn, _l_key):
+def load_teams_data(l_key):
     query = """
     SELECT team_key, team_name
     FROM teams
     WHERE league_key = ?
     ORDER BY team_name
     """
-    return pd.read_sql_query(query, _conn, params=[_l_key])
+    return pd.read_sql_query(query, fe.conn, params=[l_key])
 
-teams_df = load_teams_data(fe.conn, league_key)
+teams_df = load_teams_data(league_key)
 
 team_options = {
     row['team_name']: row['team_key']
@@ -117,7 +115,6 @@ col1, col2 = st.columns(2)
 with col1:
     home_team_name = st.selectbox("Ev Sahibi:", list(team_options.keys()) if team_options else ["Takım Bulunamadı"])
 with col2:
-    # Deplasman takımını seçerken ev sahibini varsayılan olarak farklı seçtirmeye çalışalım
     away_default_idx = 1 if len(team_options) > 1 else 0
     away_team_name = st.selectbox("Deplasman:", list(team_options.keys()) if team_options else ["Takım Bulunamadı"], index=away_default_idx)
 
@@ -181,7 +178,6 @@ if st.button("🔮 Tahmin Yap"):
     else:
         try:
             with st.spinner("Modeller yükleniyor ve maç tahmin ediliyor..."):
-                # Global predictor nesnesini güncel tutalım
                 if 'current_league' not in st.session_state or st.session_state.current_league != league_key:
                     predictor.load_models(league_key)
                     st.session_state.current_league = league_key
@@ -200,8 +196,6 @@ if st.button("🔮 Tahmin Yap"):
 
             if predictions:
                 st.success("Tahminler başarıyla oluşturuldu!")
-                
-                # Sonuçları sekmeler halinde veya alt alta gösterelim
                 display_prediction_group("⏱️ İlk Yarı Tahminleri", predictions['İlk Yarı Tahminleri'])
                 st.markdown("---")
                 display_prediction_group("⏱️ İkinci Yarı Tahminleri", predictions['İkinci Yarı Tahminleri'])
